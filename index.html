@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Jeopardy Receiver</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- Cast Application Framework -->
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<!-- Supabase client (UMD build) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --board-blue: #0A1A5C;
+    --board-blue-dark: #050D33;
+    --gold: #F0C33C;
+    --gold-dim: #C9A227;
+    --white: #FDFDFD;
+    --correct-green: #3FA34D;
+    --incorrect-red: #C0392B;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--board-blue-dark);
+    font-family: 'Barlow Semi Condensed', sans-serif;
+    color: var(--white);
+  }
+
+  .display { font-family: 'Anton', sans-serif; letter-spacing: 0.02em; }
+
+  #app {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+  }
+
+  .screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .screen.active { opacity: 1; pointer-events: auto; }
+
+  /* ---------- Waiting screen ---------- */
+  #screen-waiting {
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, var(--board-blue) 0%, var(--board-blue-dark) 100%);
+  }
+  #screen-waiting .logo {
+    font-size: 7vw;
+    color: var(--gold);
+    text-shadow: 0 0 40px rgba(240,195,60,0.4);
+  }
+  #screen-waiting .sub {
+    margin-top: 1vh;
+    font-size: 2vw;
+    color: rgba(255,255,255,0.6);
+  }
+
+  /* ---------- Board screen ---------- */
+  #screen-board {
+    background: var(--board-blue);
+    padding: 2vh 1.5vw 1.5vh;
+  }
+  .round-label {
+    text-align: center;
+    font-size: 2.2vw;
+    color: var(--gold);
+    margin-bottom: 1.2vh;
+  }
+  .board-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: auto repeat(5, 1fr);
+    gap: 0.6vw;
+  }
+  .category-cell {
+    background: var(--board-blue-dark);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0.8vh 0.4vw;
+    font-size: 1.5vw;
+    line-height: 1.15;
+    color: var(--white);
+  }
+  .clue-cell {
+    background: var(--board-blue-dark);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3vw;
+    color: var(--gold);
+    position: relative;
+    transition: transform 0.5s ease, opacity 0.5s ease;
+  }
+  .clue-cell.used {
+    color: transparent;
+    background: rgba(255,255,255,0.03);
+    transform: scale(0.94);
+  }
+
+  /* ---------- Clue / Daily Double / Final screens ---------- */
+  #screen-clue, #screen-daily-double, #screen-final {
+    background: var(--board-blue);
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 4vw;
+  }
+  .clue-kicker {
+    font-size: 2vw;
+    color: var(--gold);
+    margin-bottom: 2vh;
+    text-transform: uppercase;
+  }
+  .clue-text {
+    font-size: 4.2vw;
+    line-height: 1.3;
+    max-width: 85vw;
+  }
+  .answer-text {
+    margin-top: 4vh;
+    font-size: 3vw;
+    color: var(--gold);
+  }
+  .result-tag {
+    margin-top: 3vh;
+    font-size: 2.4vw;
+    padding: 0.8vh 2vw;
+    border-radius: 999px;
+    display: inline-block;
+  }
+  .result-tag.correct { background: var(--correct-green); }
+  .result-tag.incorrect { background: var(--incorrect-red); }
+
+  .dd-splash {
+    font-size: 6vw;
+    color: var(--gold);
+    text-shadow: 0 0 30px rgba(240,195,60,0.5);
+  }
+  .dd-wager {
+    margin-top: 3vh;
+    font-size: 4vw;
+  }
+
+  /* ---------- Scoreboard ---------- */
+  #scoreboard {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 1.5vw;
+    padding: 1.4vh 0;
+    background: var(--board-blue-dark);
+    border-top: 2px solid var(--gold-dim);
+  }
+  .player-score {
+    text-align: center;
+    min-width: 12vw;
+  }
+  .player-score .name {
+    font-size: 1.4vw;
+    color: rgba(255,255,255,0.75);
+  }
+  .player-score .score {
+    font-size: 2.2vw;
+    color: var(--gold);
+  }
+  .player-score.active .name { color: var(--white); }
+  .player-score.active { outline: 2px solid var(--gold); border-radius: 8px; }
+
+  /* ---------- Final Jeopardy reveal ---------- */
+  .final-reveal-name { font-size: 2.4vw; color: var(--white); margin-top: 3vh; }
+  .final-reveal-wager { font-size: 2vw; color: var(--gold); }
+  .final-reveal-response { font-size: 2.6vw; margin-top: 1.5vh; }
+
+  /* ---------- Game over ---------- */
+  #screen-gameover {
+    background: var(--board-blue);
+    align-items: center;
+    justify-content: center;
+  }
+  .winner-label { font-size: 2.4vw; color: var(--gold); }
+  .winner-name { font-size: 6vw; margin-top: 1vh; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="screen-waiting" class="screen active">
+    <div class="logo display">JEOPARDY!</div>
+    <div class="sub">Waiting for host to start a game&hellip;</div>
+  </div>
+
+  <div id="screen-board" class="screen">
+    <div class="round-label display" id="round-label"></div>
+    <div class="board-grid" id="board-grid"></div>
+  </div>
+
+  <div id="screen-clue" class="screen">
+    <div class="clue-kicker display" id="clue-kicker"></div>
+    <div class="clue-text" id="clue-text"></div>
+    <div class="answer-text display" id="clue-answer" style="display:none"></div>
+    <div class="result-tag display" id="clue-result" style="display:none"></div>
+  </div>
+
+  <div id="screen-daily-double" class="screen">
+    <div class="dd-splash display">DAILY DOUBLE</div>
+    <div class="clue-kicker display" id="dd-category" style="margin-top:2vh"></div>
+    <div class="dd-wager display" id="dd-wager"></div>
+  </div>
+
+  <div id="screen-final" class="screen">
+    <div class="clue-kicker display">FINAL JEOPARDY</div>
+    <div class="clue-text display" id="final-category" style="margin-top:1vh"></div>
+    <div class="clue-text" id="final-clue" style="margin-top:3vh"></div>
+    <div id="final-reveal-block" style="display:none">
+      <div class="final-reveal-name display" id="final-reveal-name"></div>
+      <div class="final-reveal-wager display" id="final-reveal-wager"></div>
+      <div class="final-reveal-response" id="final-reveal-response"></div>
+      <div class="result-tag display" id="final-reveal-result" style="display:none"></div>
+    </div>
+  </div>
+
+  <div id="screen-gameover" class="screen">
+    <div class="winner-label display">WINNER</div>
+    <div class="winner-name display" id="winner-name"></div>
+  </div>
+
+  <div id="scoreboard"></div>
+</div>
+
+<script>
+// ============================================================================
+// CONFIG — fill in with your Supabase project details
+// ============================================================================
+const SUPABASE_URL = 'http://192.168.1.173:8000';
+const SUPABASE_ANON_KEY = 'sb_publishable_0bzF9CvobUeXAgsrV2swW-_ldvYwq6T';
+const CAST_NAMESPACE = 'urn:x-cast:com.mcglinn.jeopardy';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  db: { schema: 'jeopardy_app' },
+});
+
+// ============================================================================
+// State
+// ============================================================================
+let gameId = null;
+let categories = [];   // game_categories for the current round, in position order
+let cluesByCategory = {}; // category_id -> [game_clues in position order]
+let players = [];      // ordered by position
+let gameState = null;  // current game_state row
+let channel = null;
+
+const screens = {};
+document.querySelectorAll('.screen').forEach(el => screens[el.id] = el);
+
+function showScreen(id) {
+  Object.values(screens).forEach(el => el.classList.remove('active'));
+  screens[id].classList.add('active');
+}
+
+// ============================================================================
+// Cast receiver lifecycle
+// ============================================================================
+const context = cast.framework.CastReceiverContext.getInstance();
+
+context.addCustomMessageListener(CAST_NAMESPACE, (event) => {
+  const msg = event.data || {};
+  if (msg.gameId && msg.gameId !== gameId) {
+    initGame(msg.gameId);
+  }
+});
+
+context.start({ disableIdleTimeout: true });
+
+// ============================================================================
+// Data loading + realtime subscriptions
+// ============================================================================
+async function initGame(id) {
+  gameId = id;
+  if (channel) supabaseClient.removeChannel(channel);
+
+  await loadPlayers();
+  await loadGameState();
+  await loadRound(gameState.current_round);
+
+  channel = supabaseClient
+    .channel('game-' + gameId)
+    .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'game_state', filter: `game_id=eq.${gameId}` },
+      async (payload) => {
+        const prevRound = gameState ? gameState.current_round : null;
+        gameState = payload.new;
+        if (gameState.current_round !== prevRound) await loadRound(gameState.current_round);
+        render();
+      })
+    .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'game_clues' },
+      async () => { await loadRound(gameState.current_round); render(); })
+    .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'players', filter: `game_id=eq.${gameId}` },
+      async () => { await loadPlayers(); render(); })
+    .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'final_jeopardy_responses', filter: `game_id=eq.${gameId}` },
+      async () => { render(); })
+    .subscribe();
+
+  render();
+}
+
+async function loadPlayers() {
+  const { data } = await supabaseClient
+    .from('players').select('*').eq('game_id', gameId).order('position');
+  players = data || [];
+}
+
+async function loadGameState() {
+  const { data } = await supabaseClient
+    .from('game_state').select('*').eq('game_id', gameId).single();
+  gameState = data;
+}
+
+async function loadRound(round) {
+  const { data: cats } = await supabaseClient
+    .from('game_categories').select('*').eq('game_id', gameId).eq('round', round).order('position');
+  categories = cats || [];
+
+  cluesByCategory = {};
+  for (const cat of categories) {
+    const { data: clues } = await supabaseClient
+      .from('game_clues').select('*').eq('category_id', cat.id).order('position');
+    cluesByCategory[cat.id] = clues || [];
+  }
+}
+
+// ============================================================================
+// Render
+// ============================================================================
+function render() {
+  if (!gameState) { showScreen('screen-waiting'); return; }
+  renderScoreboard();
+
+  switch (gameState.phase) {
+    case 'board': return renderBoard();
+    case 'clue_revealed': return renderClue(false);
+    case 'answer_revealed': return renderClue(true);
+    case 'daily_double_wager': return renderDailyDouble(false);
+    case 'daily_double_clue': return renderDailyDoubleClue();
+    case 'final_category': return renderFinalCategory();
+    case 'final_clue': return renderFinalClue();
+    case 'final_reveal': return renderFinalReveal();
+    case 'game_over': return renderGameOver();
+    default: return showScreen('screen-waiting');
+  }
+}
+
+function renderScoreboard() {
+  const board = document.getElementById('scoreboard');
+  board.style.display = gameState.phase === 'game_over' ? 'none' : 'flex';
+  board.innerHTML = players.map(p => `
+    <div class="player-score ${p.id === gameState.active_player_id ? 'active' : ''}">
+      <div class="name">${escapeHtml(p.name)}</div>
+      <div class="score display">$${p.score.toLocaleString()}</div>
+    </div>
+  `).join('');
+}
+
+function renderBoard() {
+  showScreen('screen-board');
+  document.getElementById('round-label').textContent =
+    gameState.current_round === 'double_jeopardy' ? 'DOUBLE JEOPARDY' : 'JEOPARDY';
+
+  const grid = document.getElementById('board-grid');
+  grid.innerHTML = '';
+
+  categories.forEach(cat => {
+    const cell = document.createElement('div');
+    cell.className = 'category-cell display';
+    cell.textContent = cat.name;
+    grid.appendChild(cell);
+  });
+
+  for (let row = 0; row < 5; row++) {
+    categories.forEach(cat => {
+      const clue = (cluesByCategory[cat.id] || [])[row];
+      const cell = document.createElement('div');
+      cell.className = 'clue-cell display' + (clue && clue.revealed ? ' used' : '');
+      cell.textContent = clue ? ('$' + clue.value) : '';
+      grid.appendChild(cell);
+    });
+  }
+}
+
+function findActiveClue() {
+  for (const cat of categories) {
+    for (const clue of (cluesByCategory[cat.id] || [])) {
+      if (clue.id === gameState.active_clue_id) return { clue, category: cat };
+    }
+  }
+  return null;
+}
+
+function renderClue(showAnswer) {
+  showScreen('screen-clue');
+  const found = findActiveClue();
+  document.getElementById('clue-kicker').textContent = found
+    ? `${found.category.name} — $${found.clue.value}` : '';
+  document.getElementById('clue-text').textContent = found ? found.clue.question : '';
+
+  const answerEl = document.getElementById('clue-answer');
+  const resultEl = document.getElementById('clue-result');
+  if (showAnswer && found) {
+    answerEl.textContent = found.clue.answer;
+    answerEl.style.display = 'block';
+    resultEl.style.display = 'none'; // sender marks correctness via score deltas, not shown here
+  } else {
+    answerEl.style.display = 'none';
+    resultEl.style.display = 'none';
+  }
+}
+
+function renderDailyDouble() {
+  showScreen('screen-daily-double');
+  const found = findActiveClue();
+  document.getElementById('dd-category').textContent = found ? found.category.name : '';
+  document.getElementById('dd-wager').textContent = gameState.daily_double_wager
+    ? `Wager: $${gameState.daily_double_wager.toLocaleString()}` : '';
+}
+
+function renderDailyDoubleClue() {
+  showScreen('screen-clue');
+  const found = findActiveClue();
+  document.getElementById('clue-kicker').textContent = found
+    ? `DAILY DOUBLE — Wager: $${(gameState.daily_double_wager || 0).toLocaleString()}` : 'DAILY DOUBLE';
+  document.getElementById('clue-text').textContent = found ? found.clue.question : '';
+  document.getElementById('clue-answer').style.display = 'none';
+  document.getElementById('clue-result').style.display = 'none';
+}
+
+function renderFinalCategory() {
+  showScreen('screen-final');
+  document.getElementById('final-category').textContent = gameState.final_category_text || '';
+  document.getElementById('final-clue').textContent = '';
+  document.getElementById('final-reveal-block').style.display = 'none';
+}
+
+function renderFinalClue() {
+  showScreen('screen-final');
+  document.getElementById('final-category').textContent = gameState.final_category_text || '';
+  const found = findActiveClue();
+  document.getElementById('final-clue').textContent = found ? found.clue.question : '';
+  document.getElementById('final-reveal-block').style.display = 'none';
+}
+
+async function renderFinalReveal() {
+  showScreen('screen-final');
+  const idx = gameState.final_reveal_index || 0;
+  const player = players[idx];
+  if (!player) return renderGameOver();
+
+  const { data: resp } = await supabaseClient
+    .from('final_jeopardy_responses').select('*')
+    .eq('game_id', gameId).eq('player_id', player.id).single();
+
+  document.getElementById('final-reveal-block').style.display = 'block';
+  document.getElementById('final-reveal-name').textContent = player.name;
+  document.getElementById('final-reveal-wager').textContent = resp ? `Wager: $${resp.wager.toLocaleString()}` : '';
+  document.getElementById('final-reveal-response').textContent = resp && resp.response ? resp.response : '(no answer)';
+
+  const resultEl = document.getElementById('final-reveal-result');
+  if (resp && resp.correct !== null) {
+    resultEl.style.display = 'inline-block';
+    resultEl.textContent = resp.correct ? 'CORRECT' : 'INCORRECT';
+    resultEl.className = 'result-tag display ' + (resp.correct ? 'correct' : 'incorrect');
+  } else {
+    resultEl.style.display = 'none';
+  }
+}
+
+function renderGameOver() {
+  showScreen('screen-gameover');
+  const winner = [...players].sort((a, b) => b.score - a.score)[0];
+  document.getElementById('winner-name').textContent = winner ? winner.name : '';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
