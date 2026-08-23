@@ -259,7 +259,6 @@
 // ============================================================================
 const SUPABASE_URL = 'http://192.168.1.173:8000';
 const SUPABASE_ANON_KEY = 'sb_publishable_0bzF9CvobUeXAgsrV2swW-_ldvYwq6T';
-const CAST_NAMESPACE = 'urn:x-cast:com.mcglinn.jeopardy';
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   db: { schema: 'jeopardy_app' },
@@ -287,26 +286,59 @@ function showScreen(id) {
 // Cast receiver lifecycle
 // ============================================================================
 const context = cast.framework.CastReceiverContext.getInstance();
-
-context.addCustomMessageListener(CAST_NAMESPACE, (event) => {
-  const msg = event.data || {};
-  if (msg.gameId && msg.gameId !== gameId) {
-    initGame(msg.gameId);
-  }
-});
-
 context.start({ disableIdleTimeout: true });
+
+// There is no custom-message channel from the sender's native module (it
+// only handles Cast discovery/connect/disconnect) — so game selection is
+// driven entirely by Supabase. The sender writes the chosen game's id into
+// this singleton row on successful cast connect; we watch it here for both
+// the initial value and any later changes (e.g. switching to a new game
+// night without restarting the receiver).
+async function watchActiveSession() {
+  console.log('[Receiver] watchActiveSession() starting, querying active_session...');
+  const { data, error } = await supabaseClient
+    .from('active_session').select('*').eq('id', true).single();
+  console.log('[Receiver] active_session query result:', JSON.stringify(data), 'error:', JSON.stringify(error));
+  if (data && data.game_id) {
+    console.log('[Receiver] Found game_id, calling initGame:', data.game_id);
+    initGame(data.game_id);
+  } else {
+    console.log('[Receiver] No game_id set on active_session — nothing to load yet.');
+  }
+
+  supabaseClient
+    .channel('active-session')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'jeopardy_app', table: 'active_session' },
+      (payload) => {
+        console.log('[Receiver] active_session changed:', JSON.stringify(payload.new));
+        if (payload.new && payload.new.game_id && payload.new.game_id !== gameId) {
+          initGame(payload.new.game_id);
+        }
+      })
+    .subscribe((status) => console.log('[Receiver] active_session channel status:', status));
+}
+
+watchActiveSession();
 
 // ============================================================================
 // Data loading + realtime subscriptions
 // ============================================================================
 async function initGame(id) {
+  console.log('[Receiver] initGame() called with id:', id);
   gameId = id;
   if (channel) supabaseClient.removeChannel(channel);
 
-  await loadPlayers();
-  await loadGameState();
-  await loadRound(gameState.current_round);
+  try {
+    await loadPlayers();
+    console.log('[Receiver] loadPlayers() OK, count:', players.length);
+    await loadGameState();
+    console.log('[Receiver] loadGameState() OK:', JSON.stringify(gameState));
+    await loadRound(gameState.current_round);
+    console.log('[Receiver] loadRound() OK, categories:', categories.length);
+  } catch (e) {
+    console.log('[Receiver] ERROR during initGame load sequence:', e && e.message ? e.message : String(e));
+    return;
+  }
 
   channel = supabaseClient
     .channel('game-' + gameId)
@@ -323,8 +355,9 @@ async function initGame(id) {
       async () => { await loadPlayers(); render(); })
     .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'final_jeopardy_responses', filter: `game_id=eq.${gameId}` },
       async () => { render(); })
-    .subscribe();
+    .subscribe((status) => console.log('[Receiver] game channel status:', status));
 
+  console.log('[Receiver] calling render(), phase:', gameState ? gameState.phase : 'null gameState');
   render();
 }
 
