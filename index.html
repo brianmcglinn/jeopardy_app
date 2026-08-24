@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Jeopardy Receiver</title>
+<title>McJeopardy Receiver</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <!-- Cast Application Framework -->
@@ -215,7 +215,7 @@
 
 <div id="app">
   <div id="screen-waiting" class="screen active">
-    <div class="logo display">JEOPARDY!</div>
+    <div class="logo display">MCJEOPARDY!</div>
     <div class="sub">Waiting for host to start a game&hellip;</div>
   </div>
 
@@ -238,7 +238,7 @@
   </div>
 
   <div id="screen-final" class="screen">
-    <div class="clue-kicker display">FINAL JEOPARDY</div>
+    <div class="clue-kicker display">FINAL MCJEOPARDY</div>
     <div class="clue-text display" id="final-category" style="margin-top:1vh"></div>
     <div class="clue-text" id="final-clue" style="margin-top:3vh"></div>
     <div id="final-reveal-block" style="display:none">
@@ -448,7 +448,7 @@ function renderScoreboard() {
 function renderBoard() {
   showScreen('screen-board');
   document.getElementById('round-label').textContent =
-    gameState.current_round === 'double_jeopardy' ? 'DOUBLE JEOPARDY' : 'JEOPARDY';
+    gameState.current_round === 'double_jeopardy' ? 'DOUBLE MCJEOPARDY' : 'MCJEOPARDY';
 
   const grid = document.getElementById('board-grid');
   grid.innerHTML = '';
