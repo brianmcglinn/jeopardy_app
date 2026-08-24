@@ -313,6 +313,17 @@ async function watchActiveSession() {
         console.log('[Receiver] active_session changed:', JSON.stringify(payload.new));
         if (payload.new && payload.new.game_id && payload.new.game_id !== gameId) {
           initGame(payload.new.game_id);
+        } else if (payload.new && !payload.new.game_id) {
+          // Session cleared — drop back to the waiting screen live, rather
+          // than silently doing nothing until a manual reload.
+          console.log('[Receiver] active_session cleared — returning to waiting screen');
+          if (channel) { supabaseClient.removeChannel(channel); channel = null; }
+          gameId = null;
+          gameState = null;
+          players = [];
+          categories = [];
+          cluesByCategory = {};
+          render();
         }
       })
     .subscribe((status) => console.log('[Receiver] active_session channel status:', status));
