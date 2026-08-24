@@ -22,6 +22,7 @@
     --white: #FDFDFD;
     --correct-green: #3FA34D;
     --incorrect-red: #C0392B;
+    --scoreboard-h: 9vh; /* fallback estimate; JS sets this to the real measured height */
   }
 
   * { box-sizing: border-box; }
@@ -76,7 +77,8 @@
   /* ---------- Board screen ---------- */
   #screen-board {
     background: var(--board-blue);
-    padding: 2vh 1.5vw 1.5vh;
+    padding: 2vh 1.5vw calc(1.5vh + var(--scoreboard-h));
+    box-sizing: border-box;
   }
   .round-label {
     text-align: center;
@@ -86,6 +88,7 @@
   }
   .board-grid {
     flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: repeat(6, 1fr);
     grid-template-rows: auto repeat(5, 1fr);
@@ -126,7 +129,8 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 4vw;
+    padding: 4vw 4vw calc(4vw + var(--scoreboard-h)) 4vw;
+    box-sizing: border-box;
   }
   .clue-kicker {
     font-size: 2vw;
@@ -427,6 +431,18 @@ function renderScoreboard() {
       <div class="score display">$${p.score.toLocaleString()}</div>
     </div>
   `).join('');
+
+  // Measure the scoreboard's real rendered height and reserve exactly that
+  // much space above it, rather than guessing a fixed value — keeps the
+  // board grid from ever being covered, regardless of device/font-rendering
+  // differences (varying player counts, name lengths, screen density, etc).
+  requestAnimationFrame(() => {
+    if (board.style.display === 'none') return;
+    const height = board.offsetHeight;
+    if (height > 0) {
+      document.documentElement.style.setProperty('--scoreboard-h', height + 'px');
+    }
+  });
 }
 
 function renderBoard() {
