@@ -278,6 +278,29 @@ let players = [];      // ordered by position
 let gameState = null;  // current game_state row
 let channel = null;
 
+// Sound effects play from the receiver (the TV) itself, not the phone —
+// the Cast connection here is only used to discover/connect and launch
+// this page; there's no audio/video streaming set up from the sender app,
+// so anything triggered on the phone can only ever come out of the
+// phone's own speaker.
+const dailyDoubleAudio = new Audio('daily-double.mp3');
+const thinkAudio = new Audio('final-jeopardy-think.mp3');
+thinkAudio.loop = true;
+
+function handlePhaseAudio(prevPhase, newPhase) {
+  if (newPhase === 'daily_double_wager' && prevPhase !== 'daily_double_wager') {
+    dailyDoubleAudio.currentTime = 0;
+    dailyDoubleAudio.play().catch((e) => console.log('[Receiver] daily double audio blocked:', e));
+  }
+  if (newPhase === 'final_clue' && prevPhase !== 'final_clue') {
+    thinkAudio.currentTime = 0;
+    thinkAudio.play().catch((e) => console.log('[Receiver] think audio blocked:', e));
+  } else if (prevPhase === 'final_clue' && newPhase !== 'final_clue') {
+    thinkAudio.pause();
+    thinkAudio.currentTime = 0;
+  }
+}
+
 const screens = {};
 document.querySelectorAll('.screen').forEach(el => screens[el.id] = el);
 
@@ -360,8 +383,10 @@ async function initGame(id) {
     .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'game_state', filter: `game_id=eq.${gameId}` },
       async (payload) => {
         const prevRound = gameState ? gameState.current_round : null;
+        const prevPhase = gameState ? gameState.phase : null;
         gameState = payload.new;
         if (gameState.current_round !== prevRound) await loadRound(gameState.current_round);
+        handlePhaseAudio(prevPhase, gameState.phase);
         render();
       })
     .on('postgres_changes', { event: '*', schema: 'jeopardy_app', table: 'game_clues' },
